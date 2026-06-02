@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Graph Visualizer</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .cards {display:flex;gap:1rem;flex-wrap:wrap}
+    .card{flex:1 1 200px;padding:1rem;border:1px solid #ddd;border-radius:8px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+  </style>
+</head>
+<body class="page-index">
+  <header>
+    <h1>Graph Visualizer</h1>
+    <nav>
+      <a href="bfs.html">BFS</a>
+      <a href="dfs.html">DFS</a>
+      <a href="scc.html">SCC</a>
+      <a href="maxflow.html">MaxFlow</a>
+    </nav>
+  </header>
+
+  <main>
+    <p>Choose an algorithm page to view interactive visualizations and animations.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>Breadth-first Search (BFS)</h3>
+        <p>Layered traversal animation and queue visualization.</p>
+        <a href="bfs.html">Open BFS</a>
+      </div>
+      <div class="card">
+        <h3>Depth-first Search (DFS)</h3>
+        <p>Recursive exploration with stack-style animation.</p>
+        <a href="dfs.html">Open DFS</a>
+      </div>
+      <div class="card">
+        <h3>Strongly Connected Components (SCC)</h3>
+        <p>Kosaraju's algorithm with component coloring.</p>
+        <a href="scc.html">Open SCC</a>
+      </div>
+      <div class="card">
+        <h3>Maximum Flow (Edmonds–Karp)</h3>
+        <p>Augmenting-path animations and flow/capacity updates.</p>
+        <a href="maxflow.html">Open MaxFlow</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <small>Built with HTML, CSS and JavaScript. Responsive (RWD).</small>
+  </footer>
+
+</body>
+</html>

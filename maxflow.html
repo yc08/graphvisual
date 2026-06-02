@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MaxFlow — Graph Visualizer</title>
+  <link rel="stylesheet" href="styles.css">
+  <meta name="description" content="MaxFlow visualization" />
+  </head>
+<body data-page="maxflow">
+  <header>
+    <h1>MaxFlow Visualizer</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="bfs.html">BFS</a>
+      <a href="dfs.html">DFS</a>
+      <a href="scc.html">SCC</a>
+    </nav>
+  </header>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="controls">
+        <div class="control-row">
+          <button id="addNodeBtn" class="btn active">Add Node</button>
+          <button id="addEdgeBtn" class="btn">Add Edge</button>
+        </div>
+        <div class="control-row">
+          <label><input id="directedCheckbox" type="checkbox" checked disabled> Directed</label>
+          <button id="randomBtn" class="btn">Random</button>
+          <button id="clearBtn" class="btn">Clear</button>
+        </div>
+        <div class="control-row">
+          <div>Source: <span id="startLabel">none</span></div>
+        </div>
+        <div class="control-row">
+          <button id="runBtn" class="btn primary">Run</button>
+          <button id="stepBtn" class="btn">Step</button>
+          <button id="pauseBtn" class="btn">Pause</button>
+        </div>
+        <div class="control-row">
+          <label>Speed <input id="speedRange" type="range" min="50" max="2000" value="600"></label>
+        </div>
+        <div class="help">Add capacities when creating edges by shift-clicking the edge after creation (click to edit not implemented).</div>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <svg id="svg" preserveAspectRatio="xMidYMid meet"></svg>
+    </main>
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
