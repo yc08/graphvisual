@@ -93,6 +93,7 @@
     highlightNode(id,cls){ const el=this.nodeEls.get(id); if(!el) return; el.group.classList.remove('queued','visiting','visited','start'); if(cls) el.group.classList.add(cls); }
     highlightEdge(eid,cls){ const el=this.edgeEls.get(eid); if(!el) return; el.line.classList.remove('active','augment'); if(cls) el.line.classList.add(cls); }
     clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); } }
+      clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; if(el && el.circle) el.circle.style.fill = ''; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); if(el && el.line){ el.line.style.stroke = ''; el.line.style.strokeWidth = ''; } } }
   }
 
   const graph = new Graph();
@@ -165,13 +166,41 @@
     const parent = {};
     function find(x){ if(parent[x]==null) parent[x]=x; while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; }
     function union(a,b){ parent[find(a)] = find(b); }
-    const edges = graph.edges.slice().sort((a,b)=> (a.weight||0) - (b.weight||0)); let total=0; for(const e of edges){ steps.push(()=>renderer.highlightEdge(e.id,'active')); if(find(e.u) !== find(e.v)){ union(e.u,e.v); total += (e.weight||0); steps.push(()=>{ renderer.highlightEdge(e.id,'augment'); if(costLabel) costLabel.textContent = `MST cost: ${total}`; }); } else { steps.push(()=>renderer.highlightEdge(e.id,null)); } } }
+    const edges = graph.edges.slice().sort((a,b)=> (a.weight||0) - (b.weight||0)); let total=0;
+    for(const e of edges){
+      // highlight considered edge (no color change unless accepted)
+      // skip applying 'active' class to avoid coloring non-selected edges
+      if(find(e.u) !== find(e.v)){
+        union(e.u,e.v);
+        total += (e.weight||0);
+        // mark edge as part of MST and show augment
+        steps.push(()=>{ e._inMST = true; renderer.highlightEdge(e.id,'augment'); if(costLabel) costLabel.textContent = `MST cost: ${total}`; });
+
+        // recolor MST edges by their current component (show progress)
+        steps.push(()=>{
+          const p = {};
+          function f(x){ if(p[x]==null) p[x]=x; while(p[x]!==x){ p[x]=p[p[x]]; x=p[x]; } return x; }
+          function u(a,b){ p[f(a)] = f(b); }
+          for(const ee of graph.edges){ if(ee._inMST) u(ee.u, ee.v); }
+          const repIndex = new Map(); let idx=0;
+          for(const ee of graph.edges){ if(ee._inMST){ const r=f(ee.u); if(!repIndex.has(r)) repIndex.set(r, idx++); } }
+          for(const ee of graph.edges){ const el = renderer.edgeEls.get(ee.id); if(ee._inMST){ const r=f(ee.u); const id = repIndex.get(r); const hue = (id*73)%360; const color = `hsl(${hue} 70% 40%)`; if(el && el.line){ el.line.style.stroke = color; el.line.style.strokeWidth = '3px'; } } else { if(el && el.line){ el.line.style.stroke = ''; el.line.style.strokeWidth = ''; } } }
+        });
+      } else {
+        steps.push(()=>renderer.highlightEdge(e.id,null));
+      }
+    }
+    
+    // cleanup _inMST flags after coloring (clearSteps will reset fills)
+    steps.push(()=>{ for(const e of graph.edges) delete e._inMST; });
+  }
 
   async function play(){ running=true; pauseBtn && (pauseBtn.textContent='Pause'); while(stepIndex < steps.length){ if(paused){ await new Promise(r=>resumeListeners.push(r)); } try{ const fn = steps[stepIndex]; if(typeof fn==='function') fn(); }catch(e){} stepIndex++; await sleep(speed); } running=false; pauseBtn && (pauseBtn.textContent='Pause'); }
 
   function pauseToggle(){ paused = !paused; if(!paused){ while(resumeListeners.length) resumeListeners.shift()(); pauseBtn && (pauseBtn.textContent='Pause'); } else { pauseBtn && (pauseBtn.textContent='Resume'); } }
 
   function clearSteps(){ steps=[]; stepIndex=0; paused=false; running=false; renderer.clearAllHighlights(); if(costLabel) costLabel.textContent=''; for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}`; } for(const e of graph.edges) e.flow = 0; renderer.updatePositions(); }
+  
 
   addNodeBtn?.addEventListener('click', ()=>{ mode='addNode'; addNodeBtn.classList.add('active'); addEdgeBtn.classList.remove('active'); edgeFrom=null; });
   addEdgeBtn?.addEventListener('click', ()=>{ mode='addEdge'; addEdgeBtn.classList.add('active'); addNodeBtn.classList.remove('active'); edgeFrom=null; });

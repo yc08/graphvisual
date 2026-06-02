@@ -1,12 +1,13 @@
 # graphvisual
 
-Graph Visualizer — BFS, DFS, SCC, MaxFlow
+Graph Visualizer — BFS, DFS, Dijkstra, MST, SCC
 
 Open [index.html](index.html) in your browser and pick a page:
 - [BFS](bfs.html)
 - [DFS](dfs.html)
+- [Dijkstra](dijkstra.html)
+- [MST](mst.html)
 - [SCC](scc.html)
-- [MaxFlow](maxflow.html)
 
 Controls summary:
 - Click canvas to add nodes.
