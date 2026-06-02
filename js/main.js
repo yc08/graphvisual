@@ -33,6 +33,45 @@
   const clearStepsBtn = document.getElementById('clearStepsBtn');
   const costLabel = document.getElementById('costLabel');
 
+  // ensure structure visualization panel
+  function ensureStructurePanel(){
+    if(document.getElementById('structurePanel')) return;
+    const container = document.createElement('div');
+    container.id = 'structurePanel';
+    container.style.cssText = 'margin:8px 0;font-size:13px;max-width:100%;overflow:auto;padding:6px;border-radius:6px;background:#fbfcff;border:1px solid #eef3ff';
+    // prefer sidebar controls if present so the panel is clearly visible
+    const controlsArea = document.querySelector('.sidebar .controls');
+    if(controlsArea){ controlsArea.insertBefore(container, controlsArea.firstChild); }
+    else {
+      const target = document.getElementById('gv-extras') || document.querySelector('header') || document.body;
+      if(target && target.parentNode) target.parentNode.insertBefore(container, target.nextSibling?.nextSibling || target.nextSibling);
+      else document.body.appendChild(container);
+    }
+    container.innerHTML = '<strong>Structure:</strong><div id="structureContent" style="margin-top:6px"></div>';
+  }
+  ensureStructurePanel();
+
+  function updateStructure(name, items){
+    ensureStructurePanel();
+    const panel = document.getElementById('structurePanel');
+    const content = document.getElementById('structureContent');
+    if(!panel || !content) return;
+    panel.querySelector('strong').textContent = name + ':';
+    // build chips
+    content.innerHTML = '';
+    const list = (items||[]);
+    list.forEach(x=>{
+      const s = document.createElement('span');
+      s.style.cssText = 'display:inline-block;padding:4px 8px;margin:4px 4px;border-radius:6px;background:#f0f4ff;border:1px solid #e0e6ff;font-size:12px';
+      s.textContent = x;
+      content.appendChild(s);
+    });
+    if(list.length===0) content.textContent = '(empty)';
+    panel.style.display = 'block';
+    panel.style.minHeight = '32px';
+  }
+  function clearStructure(){ const content=document.getElementById('structureContent'); const panel=document.getElementById('structurePanel'); if(content) content.innerHTML=''; if(panel) panel.querySelector('strong').textContent='Structure:'; }
+
   let mode = 'addNode';
   let edgeFrom = null;
   let dragging = null;
@@ -92,14 +131,15 @@
     }
     highlightNode(id,cls){ const el=this.nodeEls.get(id); if(!el) return; el.group.classList.remove('queued','visiting','visited','start'); if(cls) el.group.classList.add(cls); }
     highlightEdge(eid,cls){ const el=this.edgeEls.get(eid); if(!el) return; el.line.classList.remove('active','augment'); if(cls) el.line.classList.add(cls); }
-    clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); } }
-      clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; if(el && el.circle) el.circle.style.fill = ''; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); if(el && el.line){ el.line.style.stroke = ''; el.line.style.strokeWidth = ''; } } }
+    clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; if(el && el.circle) el.circle.style.fill = ''; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); if(el && el.line){ el.line.style.stroke = ''; el.line.style.strokeWidth = ''; } } }
   }
 
   const graph = new Graph();
   const renderer = new Renderer(svg, graph);
   if(!loadGraph()){ graph.random(6); saveGraph(); }
   renderer.render();
+  // ensure the structure panel exists after render so sidebar elements are present
+  ensureStructurePanel();
 
   document.addEventListener('pointermove',(ev)=>{ if(!dragging) return; const p=svgPoint(ev); const node=graph.nodes.find(n=>n.id===dragging.id); if(node){ node.x=p.x; node.y=p.y; renderer.updatePositions(); } });
   document.addEventListener('pointerup',(ev)=>{ if(!dragging) return; try{ const el=renderer.nodeEls.get(dragging.id); el?.circle?.releasePointerCapture?.(dragging.pid); }catch{} dragging=null; saveGraph(); });
@@ -109,11 +149,58 @@
 
   function setStart(id){ startNode = id; renderer.clearAllHighlights(); renderer.highlightNode(id,'start'); if(startLabel) startLabel.textContent = id; }
 
-  function prepareSteps(pageName){ steps=[]; stepIndex=0; renderer.clearAllHighlights(); if(pageName==='bfs') buildBFS(); else if(pageName==='dfs') buildDFS(); else if(pageName==='scc') buildSCC(); else if(pageName==='maxflow') buildMaxFlow(); else if(pageName==='dijkstra') buildDijkstra(); else if(pageName==='mst' || pageName==='kruskal') buildMST(); }
+  function prepareSteps(pageName){ steps=[]; stepIndex=0; renderer.clearAllHighlights(); clearStructure(); if(pageName==='bfs') buildBFS(); else if(pageName==='dfs') buildDFS(); else if(pageName==='scc') buildSCC(); else if(pageName==='maxflow') buildMaxFlow(); else if(pageName==='dijkstra') buildDijkstra(); else if(pageName==='mst' || pageName==='kruskal') buildMST(); }
+  
+  
 
-  function buildBFS(){ const s = startNode || (graph.nodes[0] && graph.nodes[0].id); if(!s){ alert('Set a start node by double-clicking a node.'); return; } const q=[s]; const seen=new Set([s]); steps.push(()=>renderer.highlightNode(s,'queued')); while(q.length){ const u=q.shift(); steps.push(()=>renderer.highlightNode(u,'visiting')); const nbrs = graph.neighborsWithEdge(u).map(x=>x.v); for(const v of nbrs){ if(!seen.has(v)){ seen.add(v); q.push(v); const e = graph.findEdge(u,v); if(e) steps.push(()=>renderer.highlightEdge(e.id,'active')); steps.push(()=>renderer.highlightNode(v,'queued')); } } steps.push(()=>renderer.highlightNode(u,'visited')); } }
+  function buildBFS(){
+    const s = startNode || (graph.nodes[0] && graph.nodes[0].id);
+    if(!s){ alert('Set a start node by double-clicking a node.'); return; }
+    const q = [s]; const seen = new Set([s]);
+    const snap0 = q.slice(); steps.push(()=>{ renderer.highlightNode(s,'queued'); updateStructure('Queue', snap0); });
+    while(q.length){
+      const u = q.shift();
+      const snap1 = q.slice(); steps.push(()=>{ renderer.highlightNode(u,'visiting'); updateStructure('Queue', snap1); });
+      const nbrs = graph.neighborsWithEdge(u).map(x=>x.v);
+      for(const v of nbrs){
+        if(!seen.has(v)){
+          seen.add(v);
+          q.push(v);
+          const e = graph.findEdge(u,v);
+          if(e) steps.push(()=>renderer.highlightEdge(e.id,'active'));
+          const snap2 = q.slice(); steps.push(()=>{ renderer.highlightNode(v,'queued'); updateStructure('Queue', snap2); });
+        }
+      }
+      steps.push(()=>renderer.highlightNode(u,'visited'));
+    }
+    steps.push(()=>clearStructure());
+  }
 
-  function buildDFS(){ const s = startNode || (graph.nodes[0] && graph.nodes[0].id); if(!s){ alert('Set a start node by double-clicking a node.'); return; } const seen=new Set(); function dfs(u){ seen.add(u); steps.push(()=>renderer.highlightNode(u,'visiting')); for(const item of graph.neighborsWithEdge(u)){ const v=item.v; const e=item.edge; if(!seen.has(v)){ if(e) steps.push(()=>renderer.highlightEdge(e.id,'active')); dfs(v); } } steps.push(()=>renderer.highlightNode(u,'visited')); } dfs(s); for(const n of graph.nodes) if(!seen.has(n.id)) dfs(n.id); }
+
+  function buildDFS(){
+    const s = startNode || (graph.nodes[0] && graph.nodes[0].id);
+    if(!s){ alert('Set a start node by double-clicking a node.'); return; }
+    const seen = new Set(); const stackArr = [];
+    function dfs(u){
+      seen.add(u);
+      stackArr.push(u);
+      const snapPush = stackArr.slice();
+      steps.push(()=>{ renderer.highlightNode(u,'visiting'); updateStructure('Stack', snapPush); });
+      for(const item of graph.neighborsWithEdge(u)){
+        const v = item.v; const e = item.edge;
+        if(!seen.has(v)){
+          if(e) steps.push(()=>renderer.highlightEdge(e.id,'active'));
+          dfs(v);
+        }
+      }
+      stackArr.pop();
+      const snapPop = stackArr.slice();
+      steps.push(()=>{ renderer.highlightNode(u,'visited'); updateStructure('Stack', snapPop); });
+    }
+    dfs(s);
+    for(const n of graph.nodes) if(!seen.has(n.id)) dfs(n.id);
+    steps.push(()=>clearStructure());
+  }
 
   function buildSCC(){
     // Kosaraju's algorithm with safer step generation and node checks
@@ -158,9 +245,32 @@
 
   function buildMaxFlow(){ if(graph.nodes.length<2){ alert('Need at least source and sink nodes.'); return; } const s = startNode || graph.nodes[0].id; const t = graph.nodes[graph.nodes.length-1].id; function bfsPath(){ const q=[s]; const parent=new Map(); parent.set(s,null); while(q.length){ const u=q.shift(); for(const e of graph.edges.filter(x=>x.u===u)){ const residual = e.capacity - e.flow; if(residual>0 && !parent.has(e.v)){ parent.set(e.v,{edge:e,from:u}); q.push(e.v); if(e.v===t) return parent; } } } return null; } let iter=0; while(iter<50){ const prev=bfsPath(); if(!prev) break; let cur=t; const path=[]; while(cur!==s){ const info=prev.get(cur); if(!info) break; path.push(info.edge); cur = info.from; } path.reverse(); let bottleneck=Infinity; for(const e of path) bottleneck=Math.min(bottleneck, e.capacity - e.flow); for(const e of path) steps.push(()=>renderer.highlightEdge(e.id,'augment')); for(const e of path) steps.push(()=>{ e.flow += bottleneck; renderer.updatePositions(); }); iter++; } }
 
-  function buildDijkstra(){ const s = startNode || (graph.nodes[0] && graph.nodes[0].id); if(!s){ alert('Set a start node by double-clicking a node.'); return; } const dist = new Map(); const prev = new Map(); for(const n of graph.nodes) dist.set(n.id, Infinity); dist.set(s,0); const Q = new Set(graph.nodes.map(n=>n.id)); steps.push(()=>{ renderer.highlightNode(s,'queued'); if(costLabel) costLabel.textContent = `Source: ${s}`; }); while(Q.size){ let u=null; let best=Infinity; for(const id of Q) if(dist.get(id) < best){ best = dist.get(id); u = id; } if(u==null) break; Q.delete(u); steps.push(()=>{ renderer.highlightNode(u,'visiting'); if(costLabel) costLabel.textContent = `Visiting ${u} dist=${dist.get(u)===Infinity? '∞': dist.get(u)}`; }); for(const item of graph.neighborsWithEdge(u)){ const v = item.v; const e = item.edge; const alt = dist.get(u) + (e.weight||1); if(alt < dist.get(v)){ dist.set(v, alt); prev.set(v, u); steps.push(()=>{ renderer.highlightEdge(e.id,'active'); const el = renderer.nodeEls.get(v); if(el) el.text.textContent = `${v} (${dist.get(v)})`; if(costLabel) costLabel.textContent = `Updated: ${v} = ${dist.get(v)}`; }); } }
-    steps.push(()=>{ renderer.highlightNode(u,'visited'); }); }
-    steps.push(()=>{ for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}${dist.get(n.id)<Infinity? ' ('+dist.get(n.id)+')':''}`; } if(costLabel) costLabel.textContent = 'Dijkstra finished'; }); }
+  function buildDijkstra(){
+    const s = startNode || (graph.nodes[0] && graph.nodes[0].id);
+    if(!s){ alert('Set a start node by double-clicking a node.'); return; }
+    const dist = new Map(); const prev = new Map();
+    for(const n of graph.nodes) dist.set(n.id, Infinity);
+    dist.set(s,0);
+    const Q = new Set(graph.nodes.map(n=>n.id));
+    function formatPQ(){ return Array.from(Q).sort((a,b)=> (dist.get(a)||Infinity) - (dist.get(b)||Infinity)).map(id=>`${id}${dist.get(id)===Infinity? ' (∞)': ' ('+dist.get(id)+')'}`); }
+    const snapPQ0 = formatPQ(); steps.push(()=>{ renderer.highlightNode(s,'queued'); if(costLabel) costLabel.textContent = `Source: ${s}`; updateStructure('Priority Queue', snapPQ0); });
+    while(Q.size){
+      let u=null; let best=Infinity;
+      for(const id of Q) if(dist.get(id) < best){ best = dist.get(id); u = id; }
+      if(u==null) break;
+      Q.delete(u);
+      const snapPQ1 = formatPQ(); steps.push(()=>{ renderer.highlightNode(u,'visiting'); if(costLabel) costLabel.textContent = `Visiting ${u} dist=${dist.get(u)===Infinity? '∞': dist.get(u)}`; updateStructure('Priority Queue', snapPQ1); });
+      for(const item of graph.neighborsWithEdge(u)){
+        const v = item.v; const e = item.edge; const alt = dist.get(u) + (e.weight||1);
+        if(alt < dist.get(v)){
+          dist.set(v, alt); prev.set(v, u);
+          const snapPQ2 = formatPQ(); steps.push(()=>{ renderer.highlightEdge(e.id,'active'); const el = renderer.nodeEls.get(v); if(el) el.text.textContent = `${v} (${dist.get(v)})`; if(costLabel) costLabel.textContent = `Updated: ${v} = ${dist.get(v)}`; updateStructure('Priority Queue', snapPQ2); });
+        }
+      }
+      const snapPQ3 = formatPQ(); steps.push(()=>{ renderer.highlightNode(u,'visited'); updateStructure('Priority Queue', snapPQ3); });
+    }
+    steps.push(()=>{ for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}${dist.get(n.id)<Infinity? ' ('+dist.get(n.id)+')':''}`; } if(costLabel) costLabel.textContent = 'Dijkstra finished'; clearStructure(); });
+  }
 
   function buildMST(){ if(graph.nodes.length===0) return; // Kruskal
     const parent = {};
@@ -199,7 +309,7 @@
 
   function pauseToggle(){ paused = !paused; if(!paused){ while(resumeListeners.length) resumeListeners.shift()(); pauseBtn && (pauseBtn.textContent='Pause'); } else { pauseBtn && (pauseBtn.textContent='Resume'); } }
 
-  function clearSteps(){ steps=[]; stepIndex=0; paused=false; running=false; renderer.clearAllHighlights(); if(costLabel) costLabel.textContent=''; for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}`; } for(const e of graph.edges) e.flow = 0; renderer.updatePositions(); }
+  function clearSteps(){ steps=[]; stepIndex=0; paused=false; running=false; renderer.clearAllHighlights(); clearStructure(); if(costLabel) costLabel.textContent=''; for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}`; } for(const e of graph.edges) e.flow = 0; renderer.updatePositions(); }
   
 
   addNodeBtn?.addEventListener('click', ()=>{ mode='addNode'; addNodeBtn.classList.add('active'); addEdgeBtn.classList.remove('active'); edgeFrom=null; });
