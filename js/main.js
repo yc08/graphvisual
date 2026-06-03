@@ -1,11 +1,23 @@
-// Unified graph renderer + runner (enhanced)
+/*
+  GraphVisual - single-file application
+  Purpose: render and interact with an editable graph using SVG,
+  provide algorithm visualizations (BFS, DFS, SCC, Dijkstra, MST),
+  persist graph state to localStorage, and support touch/mouse input.
+
+  Notes on structure:
+  - Graph: in-memory nodes and edges with simple helpers
+  - Renderer: maps graph model to SVG elements and updates positions
+  - Runner: collects algorithm steps (functions) and plays them as an animation
+  - Persistence: `STORAGE_KEY` saves node/edge arrays and ids
+  - Touch/drag: robust coordinate mapping and pointer capture handling
+*/
 (function(){
   const svg = document.getElementById('svg');
   if(!svg) return;
   const svgNS = 'http://www.w3.org/2000/svg';
   const page = document.body.dataset.page || 'bfs';
 
-  // Controls (may be absent on some pages)
+  // UI control elements (optional per page)
   const addNodeBtn = document.getElementById('addNodeBtn');
   const addEdgeBtn = document.getElementById('addEdgeBtn');
   const directedCheckbox = document.getElementById('directedCheckbox');
@@ -17,7 +29,7 @@
   const pauseBtn = document.getElementById('pauseBtn');
   const speedRange = document.getElementById('speedRange');
 
-  // ensure optional controls (clear steps + cost label)
+  // Create or find the small extras area used for quick controls
   function ensureExtras(){
     if(!document.getElementById('gv-extras')){
       const wrap = document.createElement('div');
@@ -40,7 +52,7 @@
   const costLabel = document.getElementById('costLabel');
   const deleteEdgeBtn = document.getElementById('deleteEdgeBtn');
 
-  // ensure structure visualization panel
+  // Create or find the structure panel where Stack/Queue/PQ snapshots are shown
   function ensureStructurePanel(){
     if(document.getElementById('structurePanel')) return;
     const container = document.createElement('div');
@@ -58,6 +70,8 @@
   }
   ensureStructurePanel();
 
+  // Update the small structure UI with the provided list snapshot
+  // `name` is the label (e.g., 'Queue') and `items` is an array of strings
   function updateStructure(name, items){
     ensureStructurePanel();
     const panel = document.getElementById('structurePanel');
@@ -79,21 +93,26 @@
   }
   function clearStructure(){ const content=document.getElementById('structureContent'); const panel=document.getElementById('structurePanel'); if(content) content.innerHTML=''; if(panel) panel.querySelector('strong').textContent='Structure:'; }
 
+  // Interaction mode: 'addNode', 'addEdge', 'deleteEdge', etc.
   let mode = 'addNode';
   let edgeFrom = null;
   let dragging = null;
   let startNode = null;
   let speed = Number(speedRange?.value || 400);
 
-  // runner state
+  // Runner state for algorithm playback
   let steps = [];
   let stepIndex = 0;
   let running = false;
   let paused = false;
   const resumeListeners = [];
 
+  // Key used for localStorage persistence
   const STORAGE_KEY = 'graphvisual_graph_v1';
 
+  // Convert a client (screen) coordinate from an input event into
+  // SVG coordinate space. Uses getScreenCTM() when available and
+  // falls back to mapping via bounding rect and the SVG viewBox.
   function svgPoint(evt){ // robustly convert client coords -> SVG coords with fallback
     try{
       const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
@@ -110,6 +129,7 @@
     return { x, y };
   }
 
+  // Simple graph data model: nodes and edges arrays with helper methods
   class Graph{
     constructor(){ this.nodes=[]; this.edges=[]; this._nid=1; this._eid=1 }
     addNode(x,y){ const n={id:this._nid++, x,y}; this.nodes.push(n); return n }
@@ -121,18 +141,22 @@
     random(n=6){ this.clear(); const cx=400,cy=260,r=160; for(let i=0;i<n;i++){ const a=(i/n)*Math.PI*2; const x=cx+Math.cos(a)*r+(Math.random()-0.5)*40; const y=cy+Math.sin(a)*r+(Math.random()-0.5)*40; this.addNode(x,y);} for(let i=0;i<Math.floor(n*1.3);i++){ const u=this.nodes[Math.floor(Math.random()*this.nodes.length)].id; const v=this.nodes[Math.floor(Math.random()*this.nodes.length)].id; if(u!==v) this.addEdge(u,v,Math.floor(Math.random()*12)+3, Math.floor(Math.random()*12)+1); } }
   }
 
+  // Persist the current graph to localStorage (lightweight snapshot)
   function saveGraph(){ try{ const data={ nodes: graph.nodes.map(n=>({id:n.id,x:n.x,y:n.y})), edges: graph.edges.map(e=>({id:e.id,u:e.u,v:e.v,capacity:e.capacity,weight:e.weight})), _nid:graph._nid, _eid:graph._eid }; localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); updateTotalCost(); }catch(e){} }
   function loadGraph(){ try{ const s=localStorage.getItem(STORAGE_KEY); if(!s) return false; const obj = JSON.parse(s); graph.nodes = (obj.nodes||[]).map(n=>({id:n.id,x:n.x,y:n.y})); graph.edges = (obj.edges||[]).map(e=>({id:e.id,u:e.u,v:e.v,capacity:e.capacity,weight:e.weight,flow:0})); graph._nid = obj._nid || (graph.nodes.reduce((m,n)=>Math.max(m,n.id),0)+1); graph._eid = obj._eid || (graph.edges.reduce((m,e)=>Math.max(m,e.id),0)+1); return true;}catch(e){return false;} }
 
   function updateTotalCost(){ if(!costLabel) return; const total = graph.edges.reduce((s,e)=>s + Number(e.weight||0),0); costLabel.textContent = `Total weight: ${total}`; }
 
+  // Renderer: creates and syncs SVG elements for nodes and edges
   class Renderer{
     constructor(svg,graph){ this.svg=svg; this.graph=graph; this.nodeEls=new Map(); this.edgeEls=new Map(); this._initDefs(); }
     _initDefs(){ const defs=document.createElementNS(svgNS,'defs'); const m=document.createElementNS(svgNS,'marker'); m.setAttribute('id','arrow'); m.setAttribute('markerWidth','10'); m.setAttribute('markerHeight','10'); m.setAttribute('refX','10'); m.setAttribute('refY','5'); m.setAttribute('orient','auto'); const p=document.createElementNS(svgNS,'path'); p.setAttribute('d','M0,0 L10,5 L0,10 z'); p.setAttribute('fill','#444'); m.appendChild(p); defs.appendChild(m); this.svg.appendChild(defs); }
+    // Remove existing dynamic SVG children (keep <defs>) and reset maps
     clearElements(){ [...this.svg.children].forEach(ch=>{ if(ch.tagName!=='defs') this.svg.removeChild(ch); }); this.nodeEls.clear(); this.edgeEls.clear(); }
+    // Render the entire graph: create edge groups and node groups
     render(){ this.clearElements(); // edges
       for(const e of this.graph.edges){ const g=document.createElementNS(svgNS,'g'); g.classList.add('edge-group'); const line=document.createElementNS(svgNS,'line'); line.setAttribute('class','edge'); line.setAttribute('data-id', e.id); if(directedCheckbox && directedCheckbox.checked) line.setAttribute('marker-end','url(#arrow)'); g.appendChild(line); const label=document.createElementNS(svgNS,'text'); label.setAttribute('class','edge-label'); label.setAttribute('data-id', e.id); const labelValue = (page==='maxflow')? `${e.flow||0}/${e.capacity||0}` : (e.weight!=null? String(e.weight): ''); label.textContent = labelValue; g.appendChild(label); this.svg.appendChild(g); this.edgeEls.set(e.id,{group:g,line,label});
-        // attach click handlers to allow editing weight
+        // Attach click handlers: open inline editor or delete edge based on mode
         try{
           line.style.cursor = 'pointer'; label.style.cursor = 'pointer';
           line.addEventListener('click', (ev)=>{ ev.stopPropagation(); if(mode==='deleteEdge'){ graph.edges = graph.edges.filter(xx=>xx.id!==e.id); renderer.render(); saveGraph(); } else { showEdgeEditor(e); } });
@@ -140,7 +164,7 @@
         }catch(e){}
       }
 
-      // nodes
+      // Create node groups and wire pointer events for dragging
       for(const n of this.graph.nodes){ const g=document.createElementNS(svgNS,'g'); g.setAttribute('class','node'); g.setAttribute('data-id',n.id); const circle=document.createElementNS(svgNS,'circle'); circle.setAttribute('r','18'); circle.setAttribute('cx',0); circle.setAttribute('cy',0); const text=document.createElementNS(svgNS,'text'); text.setAttribute('y','5'); text.setAttribute('text-anchor','middle'); text.textContent = n.id; g.appendChild(circle); g.appendChild(text); this.svg.appendChild(g); this.nodeEls.set(n.id,{group:g,circle,text});
         circle.addEventListener('pointerdown',(ev)=>{ ev.stopPropagation(); this._startDrag(n.id,ev); });
         g.addEventListener('click',(ev)=>{ ev.stopPropagation(); handleNodeClick(n.id); });
@@ -151,7 +175,9 @@
       // after rendering, ensure fit if auto-fit is enabled
       try{ if(typeof fitToView === 'function' && autoFitOnRender) fitToView(); }catch(e){}
     }
+    // Begin dragging a node; capture the pointer to ensure consistent move events
     _startDrag(id,ev){ dragging={id,pid:ev.pointerId}; try{ ev.target.setPointerCapture(ev.pointerId); }catch{} }
+    // Recompute positions for all SVG elements from the graph model
     updatePositions(){ // compute groups for parallel edges
       const groups = new Map();
       for(const e of this.graph.edges){ const key = (directedCheckbox && directedCheckbox.checked) ? `${e.u}->${e.v}` : `${Math.min(e.u,e.v)}_${Math.max(e.u,e.v)}`; if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(e); }
@@ -173,6 +199,7 @@
         if(el.label.textContent !== labelValue){ el.label.textContent = labelValue; el.label.classList.remove('updated'); void el.label.offsetWidth; el.label.classList.add('updated'); }
       }
     }
+    // Apply highlight classes to a node (queued/visiting/visited/start)
     highlightNode(id,cls){ const el=this.nodeEls.get(id); if(!el) return; el.group.classList.remove('queued','visiting','visited','start'); if(cls) el.group.classList.add(cls); }
     highlightEdge(eid,cls){ const el=this.edgeEls.get(eid); if(!el) return; el.line.classList.remove('active','augment'); if(cls) el.line.classList.add(cls); }
     clearAllHighlights(){ for(const k of this.nodeEls.keys()){ const el=this.nodeEls.get(k); el.group.classList.remove('queued','visiting','visited','start'); const t=el.text; if(t) t.textContent = k; if(el && el.circle) el.circle.style.fill = ''; } for(const k of this.edgeEls.keys()){ const el=this.edgeEls.get(k); el.line.classList.remove('active','augment'); if(el && el.line){ el.line.style.stroke = ''; el.line.style.strokeWidth = ''; } } }
@@ -194,6 +221,7 @@
     requestAnimationFrame(step);
   }
 
+  // Compute a viewBox that fits all nodes and animate the SVG to that box
   function fitToView(){
     if(!graph.nodes || graph.nodes.length===0) return;
     // compute bounds of nodes
@@ -211,7 +239,8 @@
     animateViewBox(cur, target, 420);
   }
 
-  // inline edge weight editor
+  // Inline editor: create a small HTML input positioned over the edge label
+  // Allows direct editing of edge weight; saves on Enter or blur.
   function showEdgeEditor(edge){
     if(!edge) return;
     // reuse existing input
