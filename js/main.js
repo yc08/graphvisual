@@ -29,12 +29,16 @@
     const wrap = document.getElementById('gv-extras');
     if(!document.getElementById('clearStepsBtn')){ const b=document.createElement('button'); b.id='clearStepsBtn'; b.textContent='Clear Steps'; b.className='btn'; wrap.appendChild(b); }
     if(!document.getElementById('costLabel')){ const c=document.createElement('div'); c.id='costLabel'; c.style.fontWeight='600'; wrap.appendChild(c); }
-    if(!document.getElementById('fitBtn')){ const f=document.createElement('button'); f.id='fitBtn'; f.textContent='Fit to View'; f.className='btn'; wrap.appendChild(f); }
+    if(!document.getElementById('deleteEdgeBtn')){ const d=document.createElement('button'); d.id='deleteEdgeBtn'; d.textContent='Delete Edge'; d.className='btn'; wrap.appendChild(d);
+      // try to move next to addEdge button in controls if present
+      const addEdgeControl = document.getElementById('addEdgeBtn');
+      if(addEdgeControl && addEdgeControl.parentNode){ addEdgeControl.parentNode.insertBefore(d, addEdgeControl.nextSibling); }
+    }
   }
   ensureExtras();
   const clearStepsBtn = document.getElementById('clearStepsBtn');
   const costLabel = document.getElementById('costLabel');
-  const fitBtn = document.getElementById('fitBtn');
+  const deleteEdgeBtn = document.getElementById('deleteEdgeBtn');
 
   // ensure structure visualization panel
   function ensureStructurePanel(){
@@ -127,7 +131,14 @@
     _initDefs(){ const defs=document.createElementNS(svgNS,'defs'); const m=document.createElementNS(svgNS,'marker'); m.setAttribute('id','arrow'); m.setAttribute('markerWidth','10'); m.setAttribute('markerHeight','10'); m.setAttribute('refX','10'); m.setAttribute('refY','5'); m.setAttribute('orient','auto'); const p=document.createElementNS(svgNS,'path'); p.setAttribute('d','M0,0 L10,5 L0,10 z'); p.setAttribute('fill','#444'); m.appendChild(p); defs.appendChild(m); this.svg.appendChild(defs); }
     clearElements(){ [...this.svg.children].forEach(ch=>{ if(ch.tagName!=='defs') this.svg.removeChild(ch); }); this.nodeEls.clear(); this.edgeEls.clear(); }
     render(){ this.clearElements(); // edges
-      for(const e of this.graph.edges){ const g=document.createElementNS(svgNS,'g'); g.classList.add('edge-group'); const line=document.createElementNS(svgNS,'line'); line.setAttribute('class','edge'); line.setAttribute('data-id', e.id); if(directedCheckbox && directedCheckbox.checked) line.setAttribute('marker-end','url(#arrow)'); g.appendChild(line); const label=document.createElementNS(svgNS,'text'); label.setAttribute('class','edge-label'); label.setAttribute('data-id', e.id); const labelValue = (page==='maxflow')? `${e.flow||0}/${e.capacity||0}` : (e.weight!=null? String(e.weight): ''); label.textContent = labelValue; g.appendChild(label); this.svg.appendChild(g); this.edgeEls.set(e.id,{group:g,line,label}); }
+      for(const e of this.graph.edges){ const g=document.createElementNS(svgNS,'g'); g.classList.add('edge-group'); const line=document.createElementNS(svgNS,'line'); line.setAttribute('class','edge'); line.setAttribute('data-id', e.id); if(directedCheckbox && directedCheckbox.checked) line.setAttribute('marker-end','url(#arrow)'); g.appendChild(line); const label=document.createElementNS(svgNS,'text'); label.setAttribute('class','edge-label'); label.setAttribute('data-id', e.id); const labelValue = (page==='maxflow')? `${e.flow||0}/${e.capacity||0}` : (e.weight!=null? String(e.weight): ''); label.textContent = labelValue; g.appendChild(label); this.svg.appendChild(g); this.edgeEls.set(e.id,{group:g,line,label});
+        // attach click handlers to allow editing weight
+        try{
+          line.style.cursor = 'pointer'; label.style.cursor = 'pointer';
+          line.addEventListener('click', (ev)=>{ ev.stopPropagation(); if(mode==='deleteEdge'){ graph.edges = graph.edges.filter(xx=>xx.id!==e.id); renderer.render(); saveGraph(); } else { showEdgeEditor(e); } });
+          label.addEventListener('click', (ev)=>{ ev.stopPropagation(); if(mode==='deleteEdge'){ graph.edges = graph.edges.filter(xx=>xx.id!==e.id); renderer.render(); saveGraph(); } else { showEdgeEditor(e); } });
+        }catch(e){}
+      }
 
       // nodes
       for(const n of this.graph.nodes){ const g=document.createElementNS(svgNS,'g'); g.setAttribute('class','node'); g.setAttribute('data-id',n.id); const circle=document.createElementNS(svgNS,'circle'); circle.setAttribute('r','18'); circle.setAttribute('cx',0); circle.setAttribute('cy',0); const text=document.createElementNS(svgNS,'text'); text.setAttribute('y','5'); text.setAttribute('text-anchor','middle'); text.textContent = n.id; g.appendChild(circle); g.appendChild(text); this.svg.appendChild(g); this.nodeEls.set(n.id,{group:g,circle,text});
@@ -163,6 +174,13 @@
 
   // auto-fit behavior
   let autoFitOnRender = true;
+  function animateViewBox(from, to, duration=420){
+    const start = performance.now();
+    function ease(t){ return 1 - Math.pow(1-t, 3); }
+    function step(now){ const t = Math.min(1, (now - start) / duration); const e = ease(t); const cx = from.x + (to.x - from.x) * e; const cy = from.y + (to.y - from.y) * e; const cw = from.w + (to.w - from.w) * e; const ch = from.h + (to.h - from.h) * e; svg.setAttribute('viewBox', `${cx} ${cy} ${cw} ${ch}`); if(t < 1) requestAnimationFrame(step); }
+    requestAnimationFrame(step);
+  }
+
   function fitToView(){
     if(!graph.nodes || graph.nodes.length===0) return;
     // compute bounds of nodes
@@ -171,14 +189,43 @@
     if(!isFinite(minX)) return;
     const pad = 40; const w = Math.max(100, (maxX - minX) + pad*2); const h = Math.max(80, (maxY - minY) + pad*2);
     const vbX = minX - pad; const vbY = minY - pad;
-    svg.setAttribute('viewBox', `${vbX} ${vbY} ${w} ${h}`);
+    // determine current viewBox
+    let cur = { x:0,y:0,w:svg.clientWidth||800,h:svg.clientHeight||600 };
+    try{ const vb = svg.viewBox && svg.viewBox.baseVal; if(vb && vb.width && vb.height) cur = { x: vb.x, y: vb.y, w: vb.width, h: vb.height }; else {
+        const rect = svg.getBoundingClientRect(); cur = { x: 0, y: 0, w: rect.width, h: rect.height }; }
+    }catch(e){}
+    const target = { x: vbX, y: vbY, w, h };
+    animateViewBox(cur, target, 420);
+  }
+
+  // inline edge weight editor
+  function showEdgeEditor(edge){
+    if(!edge) return;
+    // reuse existing input
+    let input = document.getElementById('edgeWeightInput');
+    if(!input){ input = document.createElement('input'); input.id = 'edgeWeightInput'; input.type = 'text'; document.body.appendChild(input); }
+    // find label element for this edge
+    const el = renderer.edgeEls.get(edge.id);
+    if(!el) return;
+    const rect = el.label.getBoundingClientRect();
+    input.style.left = Math.round(rect.left) + 'px';
+    input.style.top = Math.round(rect.top - rect.height/2) + 'px';
+    input.value = (edge.weight!=null ? String(edge.weight) : '');
+    input.style.display = 'block'; input.focus(); input.select();
+    function done(save){ if(save){ const v = input.value.trim(); if(v==='') edge.weight = null; else { const num = Number(v); edge.weight = isNaN(num)? v : num; } renderer.updatePositions(); saveGraph(); updateTotalCost(); } input.style.display='none'; input.removeEventListener('blur', onBlur); input.removeEventListener('keydown', onKey);
+      input.remove(); }
+    function onBlur(){ done(true); }
+    function onKey(ev){ if(ev.key==='Enter'){ done(true); } else if(ev.key==='Escape'){ done(false); } }
+    input.addEventListener('blur', onBlur);
+    input.addEventListener('keydown', onKey);
+    // stop svg interactions while editing
+    setTimeout(()=>{ input.addEventListener('pointerdown', e=>e.stopPropagation()); },0);
   }
 
   // debounce helper
   function debounce(fn,wait=120){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
 
-  // wire fit button and resize/orientation auto-fit
-  fitBtn?.addEventListener('click', ()=>{ autoFitOnRender = false; fitToView(); setTimeout(()=> autoFitOnRender = true, 800); });
+  // wire resize/orientation auto-fit
   const debFit = debounce(()=>{ autoFitOnRender = true; fitToView(); }, 160);
   window.addEventListener('resize', debFit);
   window.addEventListener('orientationchange', debFit);
@@ -377,6 +424,8 @@
 
   addNodeBtn?.addEventListener('click', ()=>{ mode='addNode'; addNodeBtn.classList.add('active'); addEdgeBtn.classList.remove('active'); edgeFrom=null; });
   addEdgeBtn?.addEventListener('click', ()=>{ mode='addEdge'; addEdgeBtn.classList.add('active'); addNodeBtn.classList.remove('active'); edgeFrom=null; });
+  addEdgeBtn?.addEventListener('click', ()=>{ deleteEdgeBtn?.classList.remove('active'); });
+  deleteEdgeBtn?.addEventListener('click', ()=>{ if(mode==='deleteEdge'){ mode='addNode'; deleteEdgeBtn.classList.remove('active'); } else { mode='deleteEdge'; deleteEdgeBtn.classList.add('active'); addEdgeBtn?.classList.remove('active'); edgeFrom=null; } });
   randomBtn?.addEventListener('click', ()=>{ graph.random(6); renderer.render(); saveGraph(); });
   clearBtn?.addEventListener('click', ()=>{ graph.clear(); renderer.render(); startNode=null; if(startLabel) startLabel.textContent='none'; saveGraph(); });
   speedRange?.addEventListener('input',(e)=>{ speed = Number(e.target.value); });

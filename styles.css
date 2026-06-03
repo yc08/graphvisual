@@ -31,6 +31,9 @@ svg{width:100%;height:calc(100vh - 120px);background:linear-gradient(180deg,#fff
 
 .component-legend{display:flex;gap:0.5rem;margin-top:0.5rem}
 
+/* inline edge editor */
+#edgeWeightInput{position:absolute;z-index:9999;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-shadow:0 6px 18px rgba(16,24,40,0.08);width:86px}
+
 /* responsive */
 @media (max-width:900px){
   .app{flex-direction:column}
