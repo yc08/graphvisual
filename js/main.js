@@ -19,19 +19,22 @@
 
   // ensure optional controls (clear steps + cost label)
   function ensureExtras(){
-    if(!document.getElementById('clearStepsBtn') || !document.getElementById('costLabel')){
+    if(!document.getElementById('gv-extras')){
       const wrap = document.createElement('div');
       wrap.id = 'gv-extras';
-      wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:6px 0';
-      if(!document.getElementById('clearStepsBtn')){ const b=document.createElement('button'); b.id='clearStepsBtn'; b.textContent='Clear Steps'; wrap.appendChild(b); }
-      if(!document.getElementById('costLabel')){ const c=document.createElement('div'); c.id='costLabel'; c.style.fontWeight='600'; wrap.appendChild(c); }
+      wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap';
       const target = document.querySelector('header') || document.body;
       target.parentNode.insertBefore(wrap, target.nextSibling);
     }
+    const wrap = document.getElementById('gv-extras');
+    if(!document.getElementById('clearStepsBtn')){ const b=document.createElement('button'); b.id='clearStepsBtn'; b.textContent='Clear Steps'; b.className='btn'; wrap.appendChild(b); }
+    if(!document.getElementById('costLabel')){ const c=document.createElement('div'); c.id='costLabel'; c.style.fontWeight='600'; wrap.appendChild(c); }
+    if(!document.getElementById('fitBtn')){ const f=document.createElement('button'); f.id='fitBtn'; f.textContent='Fit to View'; f.className='btn'; wrap.appendChild(f); }
   }
   ensureExtras();
   const clearStepsBtn = document.getElementById('clearStepsBtn');
   const costLabel = document.getElementById('costLabel');
+  const fitBtn = document.getElementById('fitBtn');
 
   // ensure structure visualization panel
   function ensureStructurePanel(){
@@ -87,7 +90,21 @@
 
   const STORAGE_KEY = 'graphvisual_graph_v1';
 
-  function svgPoint(evt){ const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); }
+  function svgPoint(evt){ // robustly convert client coords -> SVG coords with fallback
+    try{
+      const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+      const ctm = svg.getScreenCTM(); if(ctm) return pt.matrixTransform(ctm.inverse());
+    }catch(e){}
+    // fallback: map using bounding rect and viewBox/width ratio
+    const rect = svg.getBoundingClientRect(); const rx = (evt.clientX - rect.left); const ry = (evt.clientY - rect.top);
+    // compute SVG scale factors
+    const vb = svg.viewBox && svg.viewBox.baseVal;
+    let svgW = rect.width, svgH = rect.height, offsetX = 0, offsetY = 0;
+    if(vb && vb.width && vb.height){ svgW = vb.width; svgH = vb.height; }
+    const x = (rx / rect.width) * svgW + (vb? vb.x : 0);
+    const y = (ry / rect.height) * svgH + (vb? vb.y : 0);
+    return { x, y };
+  }
 
   class Graph{
     constructor(){ this.nodes=[]; this.edges=[]; this._nid=1; this._eid=1 }
@@ -119,7 +136,10 @@
         g.addEventListener('dblclick',(ev)=>{ ev.stopPropagation(); setStart(n.id); });
         g.addEventListener('contextmenu',(ev)=>{ ev.preventDefault(); graph.removeNode(n.id); this.render(); saveGraph(); });
       }
-      this.updatePositions(); }
+      this.updatePositions();
+      // after rendering, ensure fit if auto-fit is enabled
+      try{ if(typeof fitToView === 'function' && autoFitOnRender) fitToView(); }catch(e){}
+    }
     _startDrag(id,ev){ dragging={id,pid:ev.pointerId}; try{ ev.target.setPointerCapture(ev.pointerId); }catch{} }
     updatePositions(){ // compute groups for parallel edges
       const groups = new Map();
@@ -141,8 +161,51 @@
   // ensure the structure panel exists after render so sidebar elements are present
   ensureStructurePanel();
 
-  document.addEventListener('pointermove',(ev)=>{ if(!dragging) return; const p=svgPoint(ev); const node=graph.nodes.find(n=>n.id===dragging.id); if(node){ node.x=p.x; node.y=p.y; renderer.updatePositions(); } });
-  document.addEventListener('pointerup',(ev)=>{ if(!dragging) return; try{ const el=renderer.nodeEls.get(dragging.id); el?.circle?.releasePointerCapture?.(dragging.pid); }catch{} dragging=null; saveGraph(); });
+  // auto-fit behavior
+  let autoFitOnRender = true;
+  function fitToView(){
+    if(!graph.nodes || graph.nodes.length===0) return;
+    // compute bounds of nodes
+    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+    for(const n of graph.nodes){ if(n.x < minX) minX = n.x; if(n.y < minY) minY = n.y; if(n.x > maxX) maxX = n.x; if(n.y > maxY) maxY = n.y; }
+    if(!isFinite(minX)) return;
+    const pad = 40; const w = Math.max(100, (maxX - minX) + pad*2); const h = Math.max(80, (maxY - minY) + pad*2);
+    const vbX = minX - pad; const vbY = minY - pad;
+    svg.setAttribute('viewBox', `${vbX} ${vbY} ${w} ${h}`);
+  }
+
+  // debounce helper
+  function debounce(fn,wait=120){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
+
+  // wire fit button and resize/orientation auto-fit
+  fitBtn?.addEventListener('click', ()=>{ autoFitOnRender = false; fitToView(); setTimeout(()=> autoFitOnRender = true, 800); });
+  const debFit = debounce(()=>{ autoFitOnRender = true; fitToView(); }, 160);
+  window.addEventListener('resize', debFit);
+  window.addEventListener('orientationchange', debFit);
+
+  // initial fit
+  try{ fitToView(); }catch(e){}
+
+  document.addEventListener('pointermove',(ev)=>{
+    if(!dragging) return; if(ev.pointerId !== dragging.pid) return;
+    const p = svgPoint(ev); const node = graph.nodes.find(n=>n.id===dragging.id);
+    if(node){
+      // clamp to visible svg bbox in SVG coordinates to avoid nodes being dragged offscreen
+      const rect = svg.getBoundingClientRect(); const vb = svg.viewBox && svg.viewBox.baseVal;
+      let minX = 0, minY = 0, maxX = rect.width, maxY = rect.height;
+      if(vb && vb.width && vb.height){ minX = vb.x; minY = vb.y; maxX = vb.x + vb.width; maxY = vb.y + vb.height; }
+      // if svgPoint returned an object without matrixTransform, it already is {x,y}
+      const nx = Math.max(minX + 12, Math.min(maxX - 12, p.x));
+      const ny = Math.max(minY + 12, Math.min(maxY - 12, p.y));
+      node.x = nx; node.y = ny; renderer.updatePositions();
+    }
+  });
+
+  document.addEventListener('pointerup',(ev)=>{
+    if(!dragging) return; if(ev.pointerId !== dragging.pid) return;
+    try{ const el = renderer.nodeEls.get(dragging.id); el?.circle?.releasePointerCapture?.(dragging.pid); }catch{}
+    dragging = null; saveGraph();
+  });
 
   function handleNodeClick(id){ if(mode==='addEdge'){ if(!edgeFrom){ edgeFrom=id; renderer.highlightNode(id,'queued'); } else { if(edgeFrom!==id){ graph.addEdge(edgeFrom,id,10,10); renderer.render(); saveGraph(); } edgeFrom=null; } }
   }
