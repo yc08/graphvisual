@@ -158,7 +158,20 @@
       for(const arr of groups.values()){ const c = arr.length; for(let i=0;i<arr.length;i++){ arr[i]._offset = (i - (c-1)/2) * 12; } }
 
       for(const n of this.graph.nodes){ const el=this.nodeEls.get(n.id); if(!el) continue; el.group.setAttribute('transform',`translate(${n.x},${n.y})`); }
-      for(const e of this.graph.edges){ const src=this.graph.nodes.find(x=>x.id===e.u); const dst=this.graph.nodes.find(x=>x.id===e.v); const el=this.edgeEls.get(e.id); if(!el||!src||!dst) continue; const dx=dst.x-src.x; const dy=dst.y-src.y; const len=Math.max(Math.hypot(dx,dy),1); const px=-dy/len; const py=dx/len; const off=e._offset||0; const offX=px*off; const offY=py*off; const x1=src.x+offX; const y1=src.y+offY; const x2=dst.x+offX; const y2=dst.y+offY; el.line.setAttribute('x1',x1); el.line.setAttribute('y1',y1); el.line.setAttribute('x2',x2); el.line.setAttribute('y2',y2); const mx=(x1+x2)/2; const my=(y1+y2)/2; el.label.setAttribute('x', mx + offX*0.3); el.label.setAttribute('y', my + offY*0.3 - 6); const labelValue = (page==='maxflow')? `${e.flow||0}/${e.capacity||0}` : (e.weight!=null? String(e.weight): ''); el.label.textContent = labelValue; }
+      for(const e of this.graph.edges){
+        const src=this.graph.nodes.find(x=>x.id===e.u);
+        const dst=this.graph.nodes.find(x=>x.id===e.v);
+        const el=this.edgeEls.get(e.id);
+        if(!el||!src||!dst) continue;
+        const dx=dst.x-src.x; const dy=dst.y-src.y; const len=Math.max(Math.hypot(dx,dy),1);
+        const px=-dy/len; const py=dx/len; const off=e._offset||0; const offX=px*off; const offY=py*off;
+        const x1=src.x+offX; const y1=src.y+offY; const x2=dst.x+offX; const y2=dst.y+offY;
+        el.line.setAttribute('x1',x1); el.line.setAttribute('y1',y1); el.line.setAttribute('x2',x2); el.line.setAttribute('y2',y2);
+        const mx=(x1+x2)/2; const my=(y1+y2)/2;
+        el.label.setAttribute('x', mx + offX*0.3); el.label.setAttribute('y', my + offY*0.3 - 6);
+        const labelValue = (page==='maxflow')? `${e.flow||0}/${e.capacity||0}` : (e.weight!=null? String(e.weight): '');
+        if(el.label.textContent !== labelValue){ el.label.textContent = labelValue; el.label.classList.remove('updated'); void el.label.offsetWidth; el.label.classList.add('updated'); }
+      }
     }
     highlightNode(id,cls){ const el=this.nodeEls.get(id); if(!el) return; el.group.classList.remove('queued','visiting','visited','start'); if(cls) el.group.classList.add(cls); }
     highlightEdge(eid,cls){ const el=this.edgeEls.get(eid); if(!el) return; el.line.classList.remove('active','augment'); if(cls) el.line.classList.add(cls); }
@@ -420,6 +433,21 @@
   function pauseToggle(){ paused = !paused; if(!paused){ while(resumeListeners.length) resumeListeners.shift()(); pauseBtn && (pauseBtn.textContent='Pause'); } else { pauseBtn && (pauseBtn.textContent='Resume'); } }
 
   function clearSteps(){ steps=[]; stepIndex=0; paused=false; running=false; renderer.clearAllHighlights(); clearStructure(); if(costLabel) costLabel.textContent=''; for(const n of graph.nodes){ const el=renderer.nodeEls.get(n.id); if(el) el.text.textContent = `${n.id}`; } for(const e of graph.edges) e.flow = 0; renderer.updatePositions(); }
+
+  // enhance clearSteps with a short animation trigger
+  const origClearSteps = clearSteps;
+  function animatedClearSteps(){
+    // trigger svg animation
+    svg.classList.add('svg-clear-anim');
+    const panel = document.getElementById('structurePanel');
+    if(panel) panel.classList.add('structure-spark');
+    // call original logic
+    origClearSteps();
+    // remove animation classes shortly after
+    setTimeout(()=>{ svg.classList.remove('svg-clear-anim'); if(panel) panel.classList.remove('structure-spark'); }, 520);
+  }
+  // replace clearSteps usage in UI handlers
+  clearStepsBtn?.addEventListener('click', ()=>{ animatedClearSteps(); });
   
 
   addNodeBtn?.addEventListener('click', ()=>{ mode='addNode'; addNodeBtn.classList.add('active'); addEdgeBtn.classList.remove('active'); edgeFrom=null; });

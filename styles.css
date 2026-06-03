@@ -29,6 +29,31 @@ svg{width:100%;height:calc(100vh - 120px);background:linear-gradient(180deg,#fff
 .edge.augment{stroke:#2b8cff;stroke-width:3}
 .edge-label{font-size:11px;fill:#111}
 
+/* Animations */
+@keyframes nodePulse { 0%{transform:scale(1)} 50%{transform:scale(1.08)} 100%{transform:scale(1)} }
+@keyframes labelFlash { 0%{opacity:1; transform:translateY(0)} 50%{opacity:0.2; transform:translateY(-4px)} 100%{opacity:1; transform:translateY(0)} }
+@keyframes panelSlide { from{opacity:0; transform:translateY(-8px)} to{opacity:1; transform:translateY(0)} }
+
+.node.visiting circle{ animation: nodePulse 700ms ease-in-out infinite; }
+.edge-label.updated{ animation: labelFlash 420ms ease forwards; }
+#structurePanel{ animation: panelSlide 240ms ease; }
+
+/* button subtle pop on hover */
+.btn{ transition: transform 120ms ease, box-shadow 120ms ease; }
+.btn:hover{ transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,24,40,0.06); }
+
+/* clear steps animation */
+@keyframes clearFade { 0%{opacity:1; transform:scale(1)} 50%{opacity:0; transform:scale(0.98)} 100%{opacity:1; transform:scale(1)} }
+.svg-clear-anim{ animation: clearFade 420ms ease; }
+
+/* index page hero/nav animations */
+@keyframes navBounce { 0%{transform:translateY(0)} 30%{transform:translateY(-6px)} 60%{transform:translateY(0)} 100%{transform:translateY(0)} }
+.index-nav-anim a{ display:inline-block; animation: navBounce 900ms ease; }
+
+/* subtle sparkle on cleared structure */
+@keyframes sparkle { 0%{filter:blur(2px); opacity:0} 50%{filter:blur(0); opacity:1} 100%{opacity:0} }
+.structure-spark{ animation: sparkle 700ms ease; }
+
 .component-legend{display:flex;gap:0.5rem;margin-top:0.5rem}
 
 /* inline edge editor */
